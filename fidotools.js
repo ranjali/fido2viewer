@@ -302,8 +302,8 @@
 		if (!result) {
 			// some extra debugging to try figure this out later
 			debugLog("verifyFIDOSignature failed:  var sigBase="
-					+ JSON.stringify(sigBase) + "; var cert="
-					+ JSON.stringify(cert) + "; var sig=" + JSON.stringify(sig)
+					+ BAtohex(sigBase) + "; var cert="
+					+ BAtohex(cert) + "; var sig=" + BAtohex(sig)
 					+ "; var alg=" + alg + ";");
 		}
 
@@ -2054,10 +2054,10 @@
 			}
 		*/
 		checkType(asn1, "SEQUENCE");
-		if (asn1["sub"] != null && asn1["sub"].length == 3) {
+		if (asn1["sub"] != null && asn1["sub"].length >= 3) {
 			result["verifiedBootKey"] = parseOctetString(asn1.sub[0]);
 			result["deviceLocked"] = parseBoolean(asn1.sub[1]);
-			result["verifiedBootKey"] = parseVerifiedBootState(asn1.sub[2]);
+			result["verifiedBootState"] = parseVerifiedBootState(asn1.sub[2]);
 		} else {
 			throw ("ASN1 error parsing RootOfTrust. Expected sequence length 3. Actual: " + asn1["sub"].length);
 		}
@@ -2167,7 +2167,8 @@
 			if (tagMap[typeName] != null) {
 				result[tagMap[typeName].tag] = tagMap[typeName].func(asn1.sub[i].sub[0]);
 			} else {
-				throw ("ASN1 error parsing AttributeList. Received unknown explicit type: " + typeName);
+				// Ignore if tag is unknown
+				// throw ("ASN1 error parsing AttributeList. Received unknown explicit type: " + typeName);
 			}
 		}
 
@@ -2225,6 +2226,23 @@
 			result["teeEnforced"] = parseAuthorizationList(asn1.sub[7]);
 		}
 		return result;
+	}
+
+	// Function to compare public keys of two RSAKey objects
+	function compareRsaPublicKeys(key1, key2) {
+		// Extract and normalize public key components (modulus and exponent)
+		const publicKey1 = {
+			n: key1.n ? key1.n.toString(16) : null, // Modulus as a hex string
+			e: key1.e ? key1.e.toString(16) : null  // Public exponent as a hex string
+		};
+
+		const publicKey2 = {
+			n: key2.n ? key2.n.toString(16) : null,
+			e: key2.e ? key2.e.toString(16) : null
+		};
+
+		// Compare modulus and public exponent
+		return publicKey1.n === publicKey2.n && publicKey1.e === publicKey2.e;
 	}
 		
 	function validateAttestationStatementAndroidKey(attestationObject, unpackedAuthData, clientDataHashBytes) {
@@ -2286,7 +2304,7 @@
 		
 		// Verify that sig is a valid signature over the concatenation of authenticatorData and clientDataHash using the public key in the first certificate in x5c with the algorithm specified in alg.
 		if (valid) {
-			if (alg == -7) {
+			if (alg == -7 || alg == -37) {
 				var verificationData = unpackedAuthData["rawBytes"].concat(clientDataHashBytes);
 				if (verifyFIDOSignature(verificationData, x5c[0], sig, alg)) {
 					debugLog("Signature check OK!");
@@ -2310,8 +2328,17 @@
 			var certPublicKey = attestationCert.getPublicKey();
 			var attestedPublicKey = coseKeyToPublicKey(unpackedAuthData["attestedCredData"]["credentialPublicKey"]);
 			
-			// are these keys the same, and not null?
-			if (!(certPublicKey != null && certPublicKey["pubKeyHex"] != null && 
+			debugLog("certPublicKey: " + certPublicKey);
+			debugLog("attestedPublicKey: " + attestedPublicKey);
+			
+			// RSA specific
+			if (certPublicKey != null && certPublicKey instanceof RSAKey &&
+				attestedPublicKey != null && attestedPublicKey instanceof RSAKey) {
+				if (!compareRsaPublicKeys(certPublicKey, attestedPublicKey)) {
+					valid = false;
+					result["error"] = "Public key in the first certificate in x5c does not match the credentialPublicKey in the attestedCredentialData";
+				}
+			} else if (!(certPublicKey != null && certPublicKey["pubKeyHex"] != null && 
 					attestedPublicKey != null && attestedPublicKey["pubKeyHex"] &&
 					certPublicKey["pubKeyHex"] == attestedPublicKey["pubKeyHex"])) {
 				valid = false;
@@ -2389,8 +2416,9 @@
 		
 			// assuming KM_ORIGIN_GENERATED == 0
 			if (authzListOrigin == null || authzListOrigin != 0) {
-				valid = false;
-				result["error"] = "AuthorizationList.orgin was not KM_ORIGIN_GENERATED. Value: " + authzListOrigin;
+				// ignore origin
+				// valid = false;
+				// result["error"] = "AuthorizationList.orgin was not KM_ORIGIN_GENERATED. Value: " + authzListOrigin;
 			}
 		}
 		
@@ -2409,8 +2437,9 @@
 		
 			// KM_PURPOSE_SIGN == 2. Note that it is a set of integer, so will be returned as JSON array
 			if (authzListPurpose == null || !Array.isArray(authzListPurpose)) {
-				valid = false;
-				result["error"] = "AuthorizationList.purpose was not present.";
+				// ignore purpose value
+				// valid = false;
+				// result["error"] = "AuthorizationList.purpose was not present.";
 			} else {
 				if (authzListPurpose.indexOf(2) < 0) {
 					valid = false;
