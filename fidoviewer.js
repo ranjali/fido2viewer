@@ -377,7 +377,11 @@ function appendAttestationStatement(decodedAttestationObject, clientDataHashByte
 	txt += 'Format: ' + decodedAttestationObject.fmt + '\n';
 	var attestationStatementValidationResult = null;
 	try {
-		var unpackedAuthData = fidotools.unpackAuthData(decodedAttestationObject.authData);
+		var authData1 = decodedAttestationObject.authData
+		if (authData1 == null) {
+			authData1 = decodedAttestationObject.authenticatorData
+		}
+		var unpackedAuthData = fidotools.unpackAuthData(authData1);
 		attestationStatementValidationResult = fidotools.validateAttestationStatement(
 			decodedAttestationObject,
 			unpackedAuthData,
@@ -445,7 +449,11 @@ function appendAttestationObject(s, clientDataHashBytes) {
 
 	if (!attestationObjectError) {
 		// Show details of the authenticator data
-		appendAuthData(decodedAttestationObject.authData, "");
+		var authData1 = decodedAttestationObject.authData
+		if (authData1 == null) {
+			authData1 = decodedAttestationObject.authenticatorData
+		}
+		appendAuthData(authData1, "");
 
 		// If there is an attestation statement, show it also
 		if (decodedAttestationObject["attStmt"] != null) {
